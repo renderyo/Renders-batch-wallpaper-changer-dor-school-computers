@@ -1,31 +1,26 @@
 @echo off
 setlocal
 
-:: Prompt for image path
-set /p imgPath="Enter path to the .jpeg or .png image: "
+:: Prompt for .ico path
+set /p icoPath="Enter FULL path to the .ico file: "
 
 :: Check if file exists
-if not exist "%imgPath%" (
+if not exist "%icoPath%" (
     echo File not found!
     pause
     exit /b
 )
 
-:: Convert image to .ico using ImageMagick
-echo Converting image to .ico...
-magick convert "%imgPath%" -resize 256x256 "%~dpn1.ico"
-
-:: Set variables
-set icoPath=%~dpn1.ico
-set desktop=%USERPROFILE%\Desktop
+:: Set Desktop path
+set "desktop=%USERPROFILE%\Desktop"
 
 echo Searching for shortcuts on Desktop...
 
-:: Loop through all .lnk files on Desktop
+:: Loop through all .lnk files
 for %%F in ("%desktop%\*.lnk") do (
-    echo Changing icon for: %%F
-    powershell -command "$s = (New-Object -COM WScript.Shell).CreateShortcut('%%F'); $s.IconLocation = '%icoPath%'; $s.Save()"
+    echo Changing icon for: %%~fF
+    powershell -Command "try { $s = (New-Object -ComObject WScript.Shell).CreateShortcut('%%~fF'); $s.IconLocation = '%icoPath%'; $s.Save(); Write-Output 'Icon changed for %%~nxF'; } catch { Write-Output 'Error changing icon for %%~nxF' }"
 )
 
-echo Done! All desktop shortcuts now use the new icon.
+echo Done! Press any key to exit.
 pause
