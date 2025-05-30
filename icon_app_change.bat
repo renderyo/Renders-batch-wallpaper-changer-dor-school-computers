@@ -11,23 +11,21 @@ if not exist "%imgPath%" (
     exit /b
 )
 
-:: Convert image to .ico
+:: Convert image to .ico using ImageMagick
 echo Converting image to .ico...
 magick convert "%imgPath%" -resize 256x256 "%~dpn1.ico"
 
+:: Set variables
 set icoPath=%~dpn1.ico
+set desktop=%USERPROFILE%\Desktop
 
-:: Define locations to search for shortcuts
-set searchDirs=%USERPROFILE%\Desktop %APPDATA%\Microsoft\Windows\Start Menu\Programs
+echo Searching for shortcuts on Desktop...
 
-for %%D in (%searchDirs%) do (
-    echo Searching in: %%D
-
-    for /r "%%D" %%F in (*.lnk) do (
-        echo Changing icon for: %%F
-        powershell -command "$s = (New-Object -COM WScript.Shell).CreateShortcut('%%F'); $s.IconLocation = '%icoPath%'; $s.Save()"
-    )
+:: Loop through all .lnk files on Desktop
+for %%F in ("%desktop%\*.lnk") do (
+    echo Changing icon for: %%F
+    powershell -command "$s = (New-Object -COM WScript.Shell).CreateShortcut('%%F'); $s.IconLocation = '%icoPath%'; $s.Save()"
 )
 
-echo Done! All shortcut icons updated.
+echo Done! All desktop shortcuts now use the new icon.
 pause
