@@ -1,0 +1,1 @@
+some work but some not, the recommended one here (the best one) is test.bat it changes the wallpaper + it adds itself into autorun so everytime you restart the pc even if theres an program that auto changes the wallpaper the wallpaper is auto changed to the one you provided (make sure to execute admin on test.bat)
