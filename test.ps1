@@ -2,6 +2,14 @@
 
 # Function to set wallpaper using SystemParametersInfo
 function Set-WallpaperAPI {
+   # --- Persistent Wallpaper Changer with Correct Hidden Relaunch ---
+
+param(
+    [string]$imagePath
+)
+
+# Function to set wallpaper using SystemParametersInfo
+function Set-WallpaperAPI {
     param($imagePath)
     try {
         Add-Type @"
@@ -52,8 +60,8 @@ function Add-AutoRun {
     }
 }
 
-# If not running as background, relaunch hidden
-if (-not $env:PW_BACKGROUND) {
+# If no image path provided, assume foreground mode
+if (-not $imagePath) {
     $imagePath = Read-Host "Enter the full path to your wallpaper image"
 
     if (-Not (Test-Path $imagePath)) {
@@ -66,19 +74,15 @@ if (-not $env:PW_BACKGROUND) {
     # Add to autorun
     Add-AutoRun -scriptPath $selfPath
 
-    # Relaunch hidden with env var
-    $env:PW_BACKGROUND = 1
-    Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$selfPath`" `"$imagePath`"" -WindowStyle Hidden
+    # Relaunch hidden with image path
+    Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$selfPath`" -imagePath `"$imagePath`"" -WindowStyle Hidden
+    Write-Host "Launched in background. Exiting foreground process..."
     exit
 }
 
-# Background execution starts here
-param(
-    [string]$imagePath
-)
-
-# Validate image path
+# Background mode: validate image exists
 if (-Not (Test-Path $imagePath)) {
+    Write-Host "Image path not found. Exiting..."
     exit
 }
 
@@ -87,14 +91,14 @@ Set-WallpaperAPI -imagePath $imagePath
 Set-WallpaperRegistry -imagePath $imagePath
 Set-WallpaperCOM -imagePath $imagePath
 
-# Infinite loop to enforce wallpaper every second
+# Infinite loop to enforce wallpaper
 while ($true) {
     try {
         Set-WallpaperAPI -imagePath $imagePath
         Set-WallpaperRegistry -imagePath $imagePath
         Set-WallpaperCOM -imagePath $imagePath
     } catch {
-        # Suppress errors
+        # Ignore errors
     }
     Start-Sleep -Seconds 1
 }
