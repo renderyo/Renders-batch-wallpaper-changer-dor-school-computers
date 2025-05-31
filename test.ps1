@@ -1,4 +1,4 @@
-# --- Improved Persistent Wallpaper Changer ---
+# --- Improved Persistent Wallpaper Changer with Hidden Mode ---
 
 # Function to set wallpaper using SystemParametersInfo
 function Set-WallpaperAPI {
@@ -52,27 +52,40 @@ function Add-AutoRun {
     }
 }
 
-# Ask user for image path
-$imagePath = Read-Host "Enter the full path to your wallpaper image"
+# If not running as background, relaunch hidden
+if (-not $env:PW_BACKGROUND) {
+    $imagePath = Read-Host "Enter the full path to your wallpaper image"
 
-# Validate image path
-if (-Not (Test-Path $imagePath)) {
-    Write-Host "The specified image path does not exist. Exiting..."
+    if (-Not (Test-Path $imagePath)) {
+        Write-Host "The specified image path does not exist. Exiting..."
+        exit
+    }
+
+    $selfPath = $MyInvocation.MyCommand.Definition
+
+    # Add to autorun
+    Add-AutoRun -scriptPath $selfPath
+
+    # Relaunch hidden with env var
+    $env:PW_BACKGROUND = 1
+    Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$selfPath`" `"$imagePath`"" -WindowStyle Hidden
     exit
 }
 
-# Self path for autorun
-$selfPath = $MyInvocation.MyCommand.Definition
+# Background execution starts here
+param(
+    [string]$imagePath
+)
 
-# Add to autorun
-Add-AutoRun -scriptPath $selfPath
+# Validate image path
+if (-Not (Test-Path $imagePath)) {
+    exit
+}
 
 # Initial set
 Set-WallpaperAPI -imagePath $imagePath
 Set-WallpaperRegistry -imagePath $imagePath
 Set-WallpaperCOM -imagePath $imagePath
-
-Write-Host "Persistent wallpaper changer is now running. Press CTRL+C to stop."
 
 # Infinite loop to enforce wallpaper every second
 while ($true) {
