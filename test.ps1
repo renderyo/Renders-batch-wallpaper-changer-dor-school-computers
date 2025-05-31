@@ -1,4 +1,4 @@
-# --- Persistent Wallpaper Changer with Hidden Background Execution ---
+# --- Improved Persistent Wallpaper Changer ---
 
 # Function to set wallpaper using SystemParametersInfo
 function Set-WallpaperAPI {
@@ -52,63 +52,37 @@ function Add-AutoRun {
     }
 }
 
+# Ask user for image path
+$imagePath = Read-Host "Enter the full path to your wallpaper image"
+
+# Validate image path
+if (-Not (Test-Path $imagePath)) {
+    Write-Host "The specified image path does not exist. Exiting..."
+    exit
+}
+
 # Self path for autorun
 $selfPath = $MyInvocation.MyCommand.Definition
 
-# Check if this is running as a background worker
-param(
-    [switch]$Worker
-)
+# Add to autorun
+Add-AutoRun -scriptPath $selfPath
 
-if (-not $Worker) {
-    # Launcher mode
-    $imagePath = Read-Host "Enter the full path to your wallpaper image"
+# Initial set
+Set-WallpaperAPI -imagePath $imagePath
+Set-WallpaperRegistry -imagePath $imagePath
+Set-WallpaperCOM -imagePath $imagePath
 
-    # Validate image path
-    if (-Not (Test-Path $imagePath)) {
-        Write-Host "The specified image path does not exist. Exiting..."
-        exit
+Write-Host "Persistent wallpaper changer is now running. Press CTRL+C to stop."
+
+# Infinite loop to enforce wallpaper every second
+while ($true) {
+    try {
+        Set-WallpaperAPI -imagePath $imagePath
+        Set-WallpaperRegistry -imagePath $imagePath
+        Set-WallpaperCOM -imagePath $imagePath
+    } catch {
+        # Suppress errors
     }
-
-    # Save image path to config
-    $configPath = "$env:APPDATA\PersistentWallpaperConfig.txt"
-    $imagePath | Out-File -FilePath $configPath -Encoding UTF8
-
-    # Add to autorun
-    Add-AutoRun -scriptPath $selfPath
-
-    Write-Host "Starting persistent wallpaper changer in the background..."
-    
-    # Start hidden worker process
-    Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$selfPath`" -Worker" -WindowStyle Hidden
-
     Start-Sleep -Seconds 1
-    exit
-} else {
-    # Background worker mode
-    $configPath = "$env:APPDATA\PersistentWallpaperConfig.txt"
-    if (-Not (Test-Path $configPath)) {
-        Write-Host "Configuration not found. Exiting..."
-        exit
-    }
-    $imagePath = Get-Content $configPath | Select-Object -First 1
-
-    # Initial set
-    Set-WallpaperAPI -imagePath $imagePath
-    Set-WallpaperRegistry -imagePath $imagePath
-    Set-WallpaperCOM -imagePath $imagePath
-
-    # Infinite loop
-    while ($true) {
-        try {
-            Set-WallpaperAPI -imagePath $imagePath
-            Set-WallpaperRegistry -imagePath $imagePath
-            Set-WallpaperCOM -imagePath $imagePath
-        } catch {
-            # Suppress errors
-        }
-        Start-Sleep -Seconds 1
-    }
 }
-
 
