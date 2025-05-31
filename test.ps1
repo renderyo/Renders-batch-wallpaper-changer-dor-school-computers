@@ -1,87 +1,94 @@
-# --- Improved Persistent Wallpaper Changer ---
+# File: Set-WallpaperLoop.ps1
+
+# Configuration
+$configFile = "$env:APPDATA\wallpaper_config.txt"
+$scriptPath = $MyInvocation.MyCommand.Path
 
 # Function to set wallpaper using SystemParametersInfo
-function Set-WallpaperAPI {
-    param($imagePath)
-    try {
+function Set-Wallpaper-SPI($path) {
+    Add-Type @"
+    using System.Runtime.InteropServices;
+    public class Wallpaper {
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
+    }
+"@
+    $SPI_SETDESKWALLPAPER = 20
+    $SPIF_UPDATEINIFILE = 1
+    $SPIF_SENDCHANGE = 2
+    [Wallpaper]::SystemParametersInfo($SPI_SETDESKWALLPAPER, 0, $path, $SPIF_UPDATEINIFILE -bor $SPIF_SENDCHANGE) | Out-Null
+}
+
+# Function to set wallpaper via Registry + RUNDLL32
+function Set-Wallpaper-Registry($path) {
+    Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop\' -Name Wallpaper -Value $path
+    rundll32.exe user32.dll, UpdatePerUserSystemParameters
+}
+
+# Function to set wallpaper using multiple methods
+function Set-Wallpaper($path) {
+    Set-Wallpaper-SPI $path
+    Start-Sleep -Milliseconds 200
+    Set-Wallpaper-Registry $path
+}
+
+# Function to add this script to autorun
+function Add-To-Autorun {
+    $autorunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+    $name = 'WallpaperChanger'
+    $command = "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$scriptPath`""
+    Set-ItemProperty -Path $autorunKey -Name $name -Value $command
+}
+
+# Ask for path if no config exists
+if (!(Test-Path $configFile)) {
+    $imagePath = Read-Host "Enter full image file path for wallpaper"
+    if (!(Test-Path $imagePath)) {
+        Write-Host "File does not exist. Exiting..."
+        exit
+    }
+    $imagePath | Out-File -Encoding ASCII $configFile
+    Add-To-Autorun
+} else {
+    $imagePath = Get-Content $configFile
+}
+
+# Background loop
+Start-Job {
+    param($img)
+
+    function Set-Wallpaper-SPI($path) {
         Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-
-public class Wallpaper {
-    [DllImport("user32.dll", SetLastError = true)]
-    public static extern bool SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
-}
-"@ -ErrorAction Stop
-    } catch {
-        # Already added
+        using System.Runtime.InteropServices;
+        public class Wallpaper {
+            [DllImport("user32.dll", SetLastError = true)]
+            public static extern bool SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
+        }
+"@
+        $SPI_SETDESKWALLPAPER = 20
+        $SPIF_UPDATEINIFILE = 1
+        $SPIF_SENDCHANGE = 2
+        [Wallpaper]::SystemParametersInfo($SPI_SETDESKWALLPAPER, 0, $path, $SPIF_UPDATEINIFILE -bor $SPIF_SENDCHANGE) | Out-Null
     }
-    [Wallpaper]::SystemParametersInfo(20, 0, $imagePath, 3) | Out-Null
-}
 
-# Function to set wallpaper using registry
-function Set-WallpaperRegistry {
-    param($imagePath)
-    Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name Wallpaper -Value $imagePath -ErrorAction SilentlyContinue
-    rundll32.exe user32.dll,UpdatePerUserSystemParameters
-}
-
-# Function to set wallpaper using COM
-function Set-WallpaperCOM {
-    param($imagePath)
-    try {
-        $wsh = New-Object -ComObject WScript.Shell
-        $wsh.RegWrite("HKCU\Control Panel\Desktop\Wallpaper", $imagePath)
-        rundll32.exe user32.dll,UpdatePerUserSystemParameters
-    } catch {
-        # COM might fail; ignore
+    function Set-Wallpaper-Registry($path) {
+        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop\' -Name Wallpaper -Value $path
+        rundll32.exe user32.dll, UpdatePerUserSystemParameters
     }
-}
 
-# Function to add script to autorun
-function Add-AutoRun {
-    param($scriptPath)
-    $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-    $name = "PersistentWallpaperChanger"
-    $value = "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`""
-    try {
-        Set-ItemProperty -Path $key -Name $name -Value $value -ErrorAction SilentlyContinue
-        Write-Output "Added to autorun successfully."
-    } catch {
-        Write-Output "Failed to add to autorun: $_"
+    function Set-Wallpaper($path) {
+        Set-Wallpaper-SPI $path
+        Start-Sleep -Milliseconds 200
+        Set-Wallpaper-Registry $path
     }
-}
 
-# Ask user for image path
-$imagePath = Read-Host "Enter the full path to your wallpaper image"
-
-# Validate image path
-if (-Not (Test-Path $imagePath)) {
-    Write-Host "The specified image path does not exist. Exiting..."
-    exit
-}
-
-# Self path for autorun
-$selfPath = $MyInvocation.MyCommand.Definition
-
-# Add to autorun
-Add-AutoRun -scriptPath $selfPath
-
-# Initial set
-Set-WallpaperAPI -imagePath $imagePath
-Set-WallpaperRegistry -imagePath $imagePath
-Set-WallpaperCOM -imagePath $imagePath
-
-Write-Host "Persistent wallpaper changer is now running. Press CTRL+C to stop."
-
-# Infinite loop to enforce wallpaper every second
-while ($true) {
-    try {
-        Set-WallpaperAPI -imagePath $imagePath
-        Set-WallpaperRegistry -imagePath $imagePath
-        Set-WallpaperCOM -imagePath $imagePath
-    } catch {
-        # Suppress errors
+    while ($true) {
+        if (Test-Path $img) {
+            Set-Wallpaper $img
+        }
+        Start-Sleep -Seconds 1
     }
-    Start-Sleep -Seconds 1
-}
+} -ArgumentList $imagePath | Out-Null
+
+# Exit foreground script
+exit
