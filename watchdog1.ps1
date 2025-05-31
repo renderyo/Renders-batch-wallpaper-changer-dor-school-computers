@@ -1,33 +1,34 @@
 # -- Variables --
-$SavedPathFile = "$env:APPDATA\savedWallpaperPath.txt"
-$WallpaperKey = "HKCU:\Control Panel\Desktop"
-$AutoRunKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-$WallpaperStyle = 2 # 0 = Stretched, 2 = Centered, 6 = Fit
+$WallpaperKey = "HKCU\Control Panel\Desktop"
+$AutoRunKey = "HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
+$WallpaperStyle = "2"  # 0 = Stretched, 2 = Centered, 6 = Fit
+$TileWallpaper = "0"
 $WallpaperTranscodedPath = "$env:APPDATA\Microsoft\Windows\Themes\TranscodedWallpaper"
+$SavedPathFile = "$env:APPDATA\savedWallpaperPath.txt"
 
-# -- Read saved image path --
+# -- Read image path from saved file --
 if (-not (Test-Path $SavedPathFile)) {
     Write-Host "Saved wallpaper path file not found: $SavedPathFile"
     exit 1
 }
 
-$ImagePath = Get-Content -Path $SavedPathFile -Raw
+$ImagePath = Get-Content $SavedPathFile | Select-Object -First 1
 
-# -- Check if image file exists --
+# -- Check if file exists --
 if (-not (Test-Path $ImagePath)) {
     Write-Host "Image path does not exist: $ImagePath"
     exit 1
 }
 
-# -- Function to set wallpaper via registry --
+# -- Function to set wallpaper via reg add --
 function Set-Wallpaper {
     param ($ImageFilePath)
 
-    Set-ItemProperty -Path $WallpaperKey -Name "Wallpaper" -Value $ImageFilePath
-    Set-ItemProperty -Path $WallpaperKey -Name "WallpaperStyle" -Value $WallpaperStyle
-    Set-ItemProperty -Path $WallpaperKey -Name "TileWallpaper" -Value 0
+    reg add "$WallpaperKey" /v Wallpaper /t REG_SZ /d "$ImageFilePath" /f | Out-Null
+    reg add "$WallpaperKey" /v WallpaperStyle /t REG_SZ /d "$WallpaperStyle" /f | Out-Null
+    reg add "$WallpaperKey" /v TileWallpaper /t REG_SZ /d "$TileWallpaper" /f | Out-Null
 
-    # Notify system of the change
+    # Notify system about wallpaper change
     Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -50,9 +51,11 @@ function Set-TranscodedWallpaper {
 # -- Function to add script to AutoRun --
 function Add-ToAutoRun {
     $ScriptPath = $MyInvocation.MyCommand.Definition
-    $existing = Get-ItemProperty -Path $AutoRunKey -Name "PersistentWallpaperChanger" -ErrorAction SilentlyContinue
-    if (-not $existing) {
-        Set-ItemProperty -Path $AutoRunKey -Name "PersistentWallpaperChanger" -Value "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ScriptPath`""
+    $AutoRunValue = "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ScriptPath`""
+    $existing = (Get-ItemProperty -Path $AutoRunKey -Name "PersistentWallpaperChanger" -ErrorAction SilentlyContinue).PersistentWallpaperChanger
+
+    if ($existing -ne $AutoRunValue) {
+        reg add "$AutoRunKey" /v "PersistentWallpaperChanger" /t REG_SZ /d "$AutoRunValue" /f | Out-Null
         Write-Host "Script added to AutoRun."
     }
 }
@@ -67,17 +70,18 @@ Write-Host "Running in background. Monitoring wallpaper changes..."
 
 while ($true) {
     if (-not (Test-Path $ImagePath)) {
-        Write-Host "Image file no longer exists: $ImagePath. Exiting..."
+        Write-Host "Image file no longer exists: $ImagePath"
         exit 1
     }
 
-    $currentWallpaper = (Get-ItemProperty -Path $WallpaperKey -Name Wallpaper).Wallpaper
+    $systemWallpaper = (Get-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name Wallpaper).Wallpaper
 
-    if ($currentWallpaper -ne $ImagePath) {
-        Write-Host "Wallpaper changed externally. Resetting..."
+    if ($systemWallpaper -ne $ImagePath) {
+        Write-Host "Detected wallpaper change. Resetting..."
         Set-Wallpaper -ImageFilePath $ImagePath
         Set-TranscodedWallpaper -ImageFilePath $ImagePath
     }
 
     Start-Sleep -Seconds 5
 }
+
