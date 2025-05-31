@@ -1,13 +1,21 @@
 # -- Variables --
-$ImagePath = Read-Host "Enter the full path to the image file"
+$SavedPathFile = "$env:APPDATA\savedWallpaperPath.txt"
 $WallpaperKey = "HKCU:\Control Panel\Desktop"
 $AutoRunKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
 $WallpaperStyle = 2 # 0 = Stretched, 2 = Centered, 6 = Fit
 $WallpaperTranscodedPath = "$env:APPDATA\Microsoft\Windows\Themes\TranscodedWallpaper"
 
-# -- Check if file exists --
+# -- Read saved image path --
+if (-not (Test-Path $SavedPathFile)) {
+    Write-Host "Saved wallpaper path file not found: $SavedPathFile"
+    exit 1
+}
+
+$ImagePath = Get-Content -Path $SavedPathFile -Raw
+
+# -- Check if image file exists --
 if (-not (Test-Path $ImagePath)) {
-    Write-Host "Image path does not exist. Exiting..."
+    Write-Host "Image path does not exist: $ImagePath"
     exit 1
 }
 
@@ -19,7 +27,7 @@ function Set-Wallpaper {
     Set-ItemProperty -Path $WallpaperKey -Name "WallpaperStyle" -Value $WallpaperStyle
     Set-ItemProperty -Path $WallpaperKey -Name "TileWallpaper" -Value 0
 
-    # Notify system about wallpaper change
+    # Notify system of the change
     Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -39,7 +47,7 @@ function Set-TranscodedWallpaper {
     Copy-Item -Path $ImageFilePath -Destination $WallpaperTranscodedPath -Force -ErrorAction SilentlyContinue
 }
 
-# -- Function to add this script to AutoRun --
+# -- Function to add script to AutoRun --
 function Add-ToAutoRun {
     $ScriptPath = $MyInvocation.MyCommand.Definition
     $existing = Get-ItemProperty -Path $AutoRunKey -Name "PersistentWallpaperChanger" -ErrorAction SilentlyContinue
@@ -57,21 +65,19 @@ Add-ToAutoRun
 # -- Background monitoring loop --
 Write-Host "Running in background. Monitoring wallpaper changes..."
 
-# Store current state
-$currentWallpaper = (Get-ItemProperty -Path $WallpaperKey -Name Wallpaper).Wallpaper
-
 while ($true) {
     if (-not (Test-Path $ImagePath)) {
-        Write-Host "Image file no longer exists. Exiting..."
+        Write-Host "Image file no longer exists: $ImagePath. Exiting..."
         exit 1
     }
 
-    $systemWallpaper = (Get-ItemProperty -Path $WallpaperKey -Name Wallpaper).Wallpaper
-    if ($systemWallpaper -ne $ImagePath) {
-        Write-Host "Detected wallpaper change. Resetting..."
+    $currentWallpaper = (Get-ItemProperty -Path $WallpaperKey -Name Wallpaper).Wallpaper
+
+    if ($currentWallpaper -ne $ImagePath) {
+        Write-Host "Wallpaper changed externally. Resetting..."
         Set-Wallpaper -ImageFilePath $ImagePath
         Set-TranscodedWallpaper -ImageFilePath $ImagePath
-        $currentWallpaper = $ImagePath
     }
+
     Start-Sleep -Seconds 5
 }
