@@ -26,19 +26,17 @@ echo %imgPath%>"%saveFile%"
 :: Set wallpaper via registry
 reg add "HKCU\Control Panel\Desktop" /v Wallpaper /t REG_SZ /d "%imgPath%" /f >nul
 
-:: Notify system of environment change
+:: Notify system of environment change via PowerShell
 powershell.exe -NoProfile -Command ^
 "Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 public class NativeMethods {
     [DllImport(\"user32.dll\", SetLastError = true)]
-    public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
+    public static extern bool SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
 }
-'@;
-[UIntPtr]$result = 0;
-[NativeMethods]::SendMessageTimeout([IntPtr]0xFFFF, 0x1A, [UIntPtr]0, 'Environment', 2, 5000, [ref]$result)
-"
+'@; ^
+[NativeMethods]::SystemParametersInfo(20, 0, '%imgPath%', 3)"
 
 :: Overwrite TranscodedWallpaper file
 set "appdataPath=%APPDATA%\Microsoft\Windows\Themes"
@@ -56,11 +54,22 @@ set "psScriptPath=%APPDATA%\monitorWallpaper.ps1"
 (
     echo $savedPath = Get-Content "%saveFile%"
     echo $checkInterval = 5
+    echo function Set-Wallpaper($path) {
+    echo     Add-Type @"
+    echo using System;
+    echo using System.Runtime.InteropServices;
+    echo public class NativeMethods {
+    echo     [DllImport("user32.dll", SetLastError = true)]
+    echo     public static extern bool SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
+    echo }
+"@
+    echo     [NativeMethods]::SystemParametersInfo(20, 0, $path, 3) ^| Out-Null
+    echo }
     echo while ($true) {
     echo     $currentWallpaper = (Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name Wallpaper).Wallpaper
     echo     if ($currentWallpaper -ne $savedPath) {
     echo         Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name Wallpaper -Value $savedPath
-    echo         rundll32 user32.dll,UpdatePerUserSystemParameters
+    echo         Set-Wallpaper $savedPath
     echo         Write-Host 'Wallpaper reset to saved image'
     echo     }
     echo     Start-Sleep -Seconds $checkInterval
@@ -75,9 +84,10 @@ set "startupScript=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\runMo
 ) > "%startupScript%"
 
 echo.
-echo Wallpaper path saved and monitoring script created.
+echo Wallpaper set via Registry and PowerShell.
+echo Persistent monitoring script created at startup.
 echo The wallpaper will be automatically reset if changed.
 echo.
-choice /m "Press Y to exit"
+pause
 exit /b
 
