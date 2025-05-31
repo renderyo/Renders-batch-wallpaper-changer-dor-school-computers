@@ -16,16 +16,22 @@ public class Wallpaper {
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
 }
-"@ -ErrorAction Stop
-    } catch {}
-    [Wallpaper]::SystemParametersInfo(20, 0, $imagePath, 3) | Out-Null
+"@ -ErrorAction SilentlyContinue
+        [Wallpaper]::SystemParametersInfo(20, 0, $imagePath, 3) | Out-Null
+    } catch {
+        Write-Host "SystemParametersInfo failed: $_"
+    }
 }
 
 # Function to set wallpaper using registry
 function Set-WallpaperRegistry {
     param($imagePath)
-    Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name Wallpaper -Value $imagePath -ErrorAction SilentlyContinue
-    rundll32.exe user32.dll,UpdatePerUserSystemParameters
+    try {
+        Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name Wallpaper -Value $imagePath -ErrorAction SilentlyContinue
+        rundll32.exe user32.dll,UpdatePerUserSystemParameters
+    } catch {
+        Write-Host "Registry method failed: $_"
+    }
 }
 
 # Function to set wallpaper using COM
@@ -35,7 +41,9 @@ function Set-WallpaperCOM {
         $wsh = New-Object -ComObject WScript.Shell
         $wsh.RegWrite("HKCU\Control Panel\Desktop\Wallpaper", $imagePath)
         rundll32.exe user32.dll,UpdatePerUserSystemParameters
-    } catch {}
+    } catch {
+        Write-Host "COM method failed: $_"
+    }
 }
 
 # Function to add script to autorun
@@ -43,7 +51,7 @@ function Add-AutoRun {
     param($scriptPath)
     $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
     $name = "PersistentWallpaperChanger"
-    $value = "powershell.exe -ExecutionPolicy Bypass -File `"$scriptPath`""
+    $value = "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`" -background"
     try {
         Set-ItemProperty -Path $key -Name $name -Value $value -ErrorAction SilentlyContinue
         Write-Output "Added to autorun successfully."
@@ -77,7 +85,12 @@ if (-not $background) {
     Write-Host "Wallpaper changer set up successfully."
 
     # Launch background instance hidden
-    Start-Process powershell.exe "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$selfPath`" -background"
+    Start-Process powershell.exe -ArgumentList @(
+        '-ExecutionPolicy', 'Bypass',
+        '-WindowStyle', 'Hidden',
+        '-File', $selfPath,
+        '-background'
+    ) -WindowStyle Hidden
 
     Write-Host "Started in background. Exiting foreground instance..."
     exit
@@ -105,7 +118,10 @@ while ($true) {
         Set-WallpaperAPI -imagePath $imagePath
         Set-WallpaperRegistry -imagePath $imagePath
         Set-WallpaperCOM -imagePath $imagePath
-    } catch {}
+    } catch {
+        Write-Host "Error during wallpaper set: $_"
+    }
     Start-Sleep -Seconds 1
 }
+
 
