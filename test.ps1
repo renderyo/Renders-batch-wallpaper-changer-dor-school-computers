@@ -1,8 +1,4 @@
-# --- Persistent Wallpaper Changer with Correct Hidden Relaunch ---
-
-param(
-    [string]$imagePath
-)
+# --- Improved Persistent Wallpaper Changer ---
 
 # Function to set wallpaper using SystemParametersInfo
 function Set-WallpaperAPI {
@@ -56,45 +52,36 @@ function Add-AutoRun {
     }
 }
 
-# If no image path provided, assume foreground mode
-if (-not $imagePath) {
-    $imagePath = Read-Host "Enter the full path to your wallpaper image"
+# Ask user for image path
+$imagePath = Read-Host "Enter the full path to your wallpaper image"
 
-    if (-Not (Test-Path $imagePath)) {
-        Write-Host "The specified image path does not exist. Exiting..."
-        exit
-    }
-
-    $selfPath = $MyInvocation.MyCommand.Definition
-
-    # Add to autorun
-    Add-AutoRun -scriptPath $selfPath
-
-    # Relaunch hidden with image path
-    Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$selfPath`" -imagePath `"$imagePath`"" -WindowStyle Hidden
-    Write-Host "Launched in background. Exiting foreground process..."
-    exit
-}
-
-# Background mode: validate image exists
+# Validate image path
 if (-Not (Test-Path $imagePath)) {
-    Write-Host "Image path not found. Exiting..."
+    Write-Host "The specified image path does not exist. Exiting..."
     exit
 }
+
+# Self path for autorun
+$selfPath = $MyInvocation.MyCommand.Definition
+
+# Add to autorun
+Add-AutoRun -scriptPath $selfPath
 
 # Initial set
 Set-WallpaperAPI -imagePath $imagePath
 Set-WallpaperRegistry -imagePath $imagePath
 Set-WallpaperCOM -imagePath $imagePath
 
-# Infinite loop to enforce wallpaper
+Write-Host "Persistent wallpaper changer is now running. Press CTRL+C to stop."
+
+# Infinite loop to enforce wallpaper every second
 while ($true) {
     try {
         Set-WallpaperAPI -imagePath $imagePath
         Set-WallpaperRegistry -imagePath $imagePath
         Set-WallpaperCOM -imagePath $imagePath
     } catch {
-        # Ignore errors
+        # Suppress errors
     }
     Start-Sleep -Seconds 1
 }
