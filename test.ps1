@@ -1,8 +1,4 @@
-# --- Improved Persistent Wallpaper Changer with Hidden Mode ---
-
-# Function to set wallpaper using SystemParametersInfo
-function Set-WallpaperAPI {
-   # --- Persistent Wallpaper Changer with Correct Hidden Relaunch ---
+# --- Persistent Wallpaper Changer with Correct Hidden Relaunch ---
 
 param(
     [string]$imagePath
@@ -102,4 +98,3 @@ while ($true) {
     }
     Start-Sleep -Seconds 1
 }
-
