@@ -1,94 +1,85 @@
-# File: Set-WallpaperLoop.ps1
+# --- Ultimate Stable Persistent Wallpaper Changer ---
 
-# Configuration
-$configFile = "$env:APPDATA\wallpaper_config.txt"
-$scriptPath = $MyInvocation.MyCommand.Path
+# Ensure we load the API type only once globally
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+
+public class Wallpaper {
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
+}
+"@
 
 # Function to set wallpaper using SystemParametersInfo
-function Set-Wallpaper-SPI($path) {
-    Add-Type @"
-    using System.Runtime.InteropServices;
-    public class Wallpaper {
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern bool SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
+function Set-WallpaperAPI {
+    param($imagePath)
+    try {
+        [Wallpaper]::SystemParametersInfo(20, 0, $imagePath, 3) | Out-Null
+    } catch {
+        Write-Host "SystemParametersInfo failed: $_"
     }
-"@
-    $SPI_SETDESKWALLPAPER = 20
-    $SPIF_UPDATEINIFILE = 1
-    $SPIF_SENDCHANGE = 2
-    [Wallpaper]::SystemParametersInfo($SPI_SETDESKWALLPAPER, 0, $path, $SPIF_UPDATEINIFILE -bor $SPIF_SENDCHANGE) | Out-Null
 }
 
-# Function to set wallpaper via Registry + RUNDLL32
-function Set-Wallpaper-Registry($path) {
-    Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop\' -Name Wallpaper -Value $path
-    rundll32.exe user32.dll, UpdatePerUserSystemParameters
+# Function to set wallpaper using registry
+function Set-WallpaperRegistry {
+    param($imagePath)
+    try {
+        Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name Wallpaper -Value $imagePath -ErrorAction SilentlyContinue
+        rundll32.exe user32.dll,UpdatePerUserSystemParameters
+    } catch {
+        Write-Host "Registry method failed: $_"
+    }
 }
 
-# Function to set wallpaper using multiple methods
-function Set-Wallpaper($path) {
-    Set-Wallpaper-SPI $path
-    Start-Sleep -Milliseconds 200
-    Set-Wallpaper-Registry $path
+# Function to set wallpaper using COM
+function Set-WallpaperCOM {
+    param($imagePath)
+    try {
+        $wsh = New-Object -ComObject WScript.Shell
+        $wsh.RegWrite("HKCU\Control Panel\Desktop\Wallpaper", $imagePath)
+        rundll32.exe user32.dll,UpdatePerUserSystemParameters
+    } catch {
+        Write-Host "COM method failed: $_"
+    }
 }
 
-# Function to add this script to autorun
-function Add-To-Autorun {
-    $autorunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
-    $name = 'WallpaperChanger'
-    $command = "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$scriptPath`""
-    Set-ItemProperty -Path $autorunKey -Name $name -Value $command
+# Function to add script to autorun
+function Add-AutoRun {
+    param($scriptPath)
+    try {
+        $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+        $name = "PersistentWallpaperChanger"
+        $value = "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`""
+        Set-ItemProperty -Path $key -Name $name -Value $value -ErrorAction SilentlyContinue
+        Write-Host "Added to autorun successfully."
+    } catch {
+        Write-Host "Failed to add to autorun: $_"
+    }
 }
 
-# Ask for path if no config exists
-if (!(Test-Path $configFile)) {
-    $imagePath = Read-Host "Enter full image file path for wallpaper"
-    if (!(Test-Path $imagePath)) {
-        Write-Host "File does not exist. Exiting..."
-        exit
-    }
-    $imagePath | Out-File -Encoding ASCII $configFile
-    Add-To-Autorun
-} else {
-    $imagePath = Get-Content $configFile
-}
+# Main execution
+try {
+    $imagePath = Read-Host "Enter the full path to your wallpaper image"
 
-# Background loop
-Start-Job {
-    param($img)
-
-    function Set-Wallpaper-SPI($path) {
-        Add-Type @"
-        using System.Runtime.InteropServices;
-        public class Wallpaper {
-            [DllImport("user32.dll", SetLastError = true)]
-            public static extern bool SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
-        }
-"@
-        $SPI_SETDESKWALLPAPER = 20
-        $SPIF_UPDATEINIFILE = 1
-        $SPIF_SENDCHANGE = 2
-        [Wallpaper]::SystemParametersInfo($SPI_SETDESKWALLPAPER, 0, $path, $SPIF_UPDATEINIFILE -bor $SPIF_SENDCHANGE) | Out-Null
+    if (-Not (Test-Path $imagePath)) {
+        Write-Host "ERROR: The specified image path does not exist. Exiting..."
+        exit 1
     }
 
-    function Set-Wallpaper-Registry($path) {
-        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop\' -Name Wallpaper -Value $path
-        rundll32.exe user32.dll, UpdatePerUserSystemParameters
-    }
+    $selfPath = $MyInvocation.MyCommand.Definition
 
-    function Set-Wallpaper($path) {
-        Set-Wallpaper-SPI $path
-        Start-Sleep -Milliseconds 200
-        Set-Wallpaper-Registry $path
-    }
+    Add-AutoRun -scriptPath $selfPath
+
+    Write-Host "Starting persistent wallpaper enforcement loop. Press CTRL+C to stop."
 
     while ($true) {
-        if (Test-Path $img) {
-            Set-Wallpaper $img
-        }
+        Set-WallpaperAPI -imagePath $imagePath
+        Set-WallpaperRegistry -imagePath $imagePath
+        Set-WallpaperCOM -imagePath $imagePath
         Start-Sleep -Seconds 1
     }
-} -ArgumentList $imagePath | Out-Null
-
-# Exit foreground script
-exit
+} catch {
+    Write-Host "Fatal Error: $_"
+    pause
+}
