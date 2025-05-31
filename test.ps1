@@ -1,8 +1,4 @@
-# --- Improved Persistent Wallpaper Changer with Hidden Background Execution ---
-
-param (
-    [switch]$background
-)
+# --- Persistent Wallpaper Changer with Hidden Background ---
 
 # Function to set wallpaper using SystemParametersInfo
 function Set-WallpaperAPI {
@@ -16,22 +12,18 @@ public class Wallpaper {
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
 }
-"@ -ErrorAction SilentlyContinue
-        [Wallpaper]::SystemParametersInfo(20, 0, $imagePath, 3) | Out-Null
+"@ -ErrorAction Stop
     } catch {
-        Write-Host "SystemParametersInfo failed: $_"
+        # Already added
     }
+    [Wallpaper]::SystemParametersInfo(20, 0, $imagePath, 3) | Out-Null
 }
 
 # Function to set wallpaper using registry
 function Set-WallpaperRegistry {
     param($imagePath)
-    try {
-        Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name Wallpaper -Value $imagePath -ErrorAction SilentlyContinue
-        rundll32.exe user32.dll,UpdatePerUserSystemParameters
-    } catch {
-        Write-Host "Registry method failed: $_"
-    }
+    Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name Wallpaper -Value $imagePath -ErrorAction SilentlyContinue
+    rundll32.exe user32.dll,UpdatePerUserSystemParameters
 }
 
 # Function to set wallpaper using COM
@@ -42,16 +34,16 @@ function Set-WallpaperCOM {
         $wsh.RegWrite("HKCU\Control Panel\Desktop\Wallpaper", $imagePath)
         rundll32.exe user32.dll,UpdatePerUserSystemParameters
     } catch {
-        Write-Host "COM method failed: $_"
+        # Ignore
     }
 }
 
-# Function to add script to autorun
+# Function to add autorun
 function Add-AutoRun {
     param($scriptPath)
     $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
     $name = "PersistentWallpaperChanger"
-    $value = "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`" -background"
+    $value = "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`""
     try {
         Set-ItemProperty -Path $key -Name $name -Value $value -ErrorAction SilentlyContinue
         Write-Output "Added to autorun successfully."
@@ -60,68 +52,50 @@ function Add-AutoRun {
     }
 }
 
-# Path to this script
+# CONFIG FILE TO STORE IMAGE PATH
+$configFile = "$env:APPDATA\PersistentWallpaperConfig.txt"
+
+# Self path for autorun
 $selfPath = $MyInvocation.MyCommand.Definition
 
-if (-not $background) {
-    # First run or startup without background flag
+# --- MAIN LOGIC ---
 
-    # Ask user for image path
+if (-Not (Test-Path $configFile)) {
+    # First time setup
     $imagePath = Read-Host "Enter the full path to your wallpaper image"
-
-    # Validate image path
     if (-Not (Test-Path $imagePath)) {
         Write-Host "The specified image path does not exist. Exiting..."
         exit
     }
-
-    # Save image path to a config file in AppData
-    $configPath = "$env:APPDATA\PersistentWallpaperConfig.txt"
-    Set-Content -Path $configPath -Value $imagePath
-
-    # Add to autorun
+    $imagePath | Out-File -Encoding ASCII -FilePath $configFile
     Add-AutoRun -scriptPath $selfPath
+    Write-Host "Configuration saved. Please restart the script."
+    exit
+} else {
+    # Config exists, read image path
+    $imagePath = Get-Content -Path $configFile -ErrorAction SilentlyContinue
+}
 
-    Write-Host "Wallpaper changer set up successfully."
+# Check for hidden mode
+param([switch]$HiddenRun)
 
-    # Launch background instance hidden
-    Start-Process powershell.exe -ArgumentList @(
-        '-ExecutionPolicy', 'Bypass',
-        '-WindowStyle', 'Hidden',
-        '-File', $selfPath,
-        '-background'
-    ) -WindowStyle Hidden
-
-    Write-Host "Started in background. Exiting foreground instance..."
+if (-Not $HiddenRun) {
+    # Relaunch in background hidden mode
+    Start-Process -WindowStyle Hidden -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy Bypass -File `"$selfPath`" -HiddenRun"
     exit
 }
 
-# --- Background persistent wallpaper loop ---
-
-# Read image path from config
-$configPath = "$env:APPDATA\PersistentWallpaperConfig.txt"
-if (-Not (Test-Path $configPath)) {
-    Write-Host "No config found. Exiting..."
-    exit
-}
-
-$imagePath = Get-Content -Path $configPath
-
-# Initial set
-Set-WallpaperAPI -imagePath $imagePath
-Set-WallpaperRegistry -imagePath $imagePath
-Set-WallpaperCOM -imagePath $imagePath
-
-# Infinite loop to enforce wallpaper
+# --- HIDDEN BACKGROUND LOOP ---
 while ($true) {
     try {
         Set-WallpaperAPI -imagePath $imagePath
         Set-WallpaperRegistry -imagePath $imagePath
         Set-WallpaperCOM -imagePath $imagePath
     } catch {
-        Write-Host "Error during wallpaper set: $_"
+        # Suppress errors
     }
     Start-Sleep -Seconds 1
 }
+
 
 
