@@ -1,4 +1,8 @@
-# --- Improved Persistent Wallpaper Changer ---
+# --- Improved Persistent Wallpaper Changer with Hidden Background Execution ---
+
+param (
+    [switch]$background
+)
 
 # Function to set wallpaper using SystemParametersInfo
 function Set-WallpaperAPI {
@@ -13,9 +17,7 @@ public class Wallpaper {
     public static extern bool SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
 }
 "@ -ErrorAction Stop
-    } catch {
-        # Already added
-    }
+    } catch {}
     [Wallpaper]::SystemParametersInfo(20, 0, $imagePath, 3) | Out-Null
 }
 
@@ -33,9 +35,7 @@ function Set-WallpaperCOM {
         $wsh = New-Object -ComObject WScript.Shell
         $wsh.RegWrite("HKCU\Control Panel\Desktop\Wallpaper", $imagePath)
         rundll32.exe user32.dll,UpdatePerUserSystemParameters
-    } catch {
-        # COM might fail; ignore
-    }
+    } catch {}
 }
 
 # Function to add script to autorun
@@ -43,7 +43,7 @@ function Add-AutoRun {
     param($scriptPath)
     $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
     $name = "PersistentWallpaperChanger"
-    $value = "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`""
+    $value = "powershell.exe -ExecutionPolicy Bypass -File `"$scriptPath`""
     try {
         Set-ItemProperty -Path $key -Name $name -Value $value -ErrorAction SilentlyContinue
         Write-Output "Added to autorun successfully."
@@ -52,37 +52,60 @@ function Add-AutoRun {
     }
 }
 
-# Ask user for image path
-$imagePath = Read-Host "Enter the full path to your wallpaper image"
+# Path to this script
+$selfPath = $MyInvocation.MyCommand.Definition
 
-# Validate image path
-if (-Not (Test-Path $imagePath)) {
-    Write-Host "The specified image path does not exist. Exiting..."
+if (-not $background) {
+    # First run or startup without background flag
+
+    # Ask user for image path
+    $imagePath = Read-Host "Enter the full path to your wallpaper image"
+
+    # Validate image path
+    if (-Not (Test-Path $imagePath)) {
+        Write-Host "The specified image path does not exist. Exiting..."
+        exit
+    }
+
+    # Save image path to a config file in AppData
+    $configPath = "$env:APPDATA\PersistentWallpaperConfig.txt"
+    Set-Content -Path $configPath -Value $imagePath
+
+    # Add to autorun
+    Add-AutoRun -scriptPath $selfPath
+
+    Write-Host "Wallpaper changer set up successfully."
+
+    # Launch background instance hidden
+    Start-Process powershell.exe "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$selfPath`" -background"
+
+    Write-Host "Started in background. Exiting foreground instance..."
     exit
 }
 
-# Self path for autorun
-$selfPath = $MyInvocation.MyCommand.Definition
+# --- Background persistent wallpaper loop ---
 
-# Add to autorun
-Add-AutoRun -scriptPath $selfPath
+# Read image path from config
+$configPath = "$env:APPDATA\PersistentWallpaperConfig.txt"
+if (-Not (Test-Path $configPath)) {
+    Write-Host "No config found. Exiting..."
+    exit
+}
+
+$imagePath = Get-Content -Path $configPath
 
 # Initial set
 Set-WallpaperAPI -imagePath $imagePath
 Set-WallpaperRegistry -imagePath $imagePath
 Set-WallpaperCOM -imagePath $imagePath
 
-Write-Host "Persistent wallpaper changer is now running. Press CTRL+C to stop."
-
-# Infinite loop to enforce wallpaper every second
+# Infinite loop to enforce wallpaper
 while ($true) {
     try {
         Set-WallpaperAPI -imagePath $imagePath
         Set-WallpaperRegistry -imagePath $imagePath
         Set-WallpaperCOM -imagePath $imagePath
-    } catch {
-        # Suppress errors
-    }
+    } catch {}
     Start-Sleep -Seconds 1
 }
 
