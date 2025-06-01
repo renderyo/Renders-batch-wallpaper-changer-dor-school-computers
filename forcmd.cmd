@@ -1,0 +1,1 @@
+reg add "HKCU\Control Panel\Desktop" /v Wallpaper /t REG_SZ /d "C:\your\with\replace\wallpaper-path.jpg" /f && reg add "HKCU\Control Panel\Desktop" /v WallpaperStyle /t REG_SZ /d 2 /f && reg add "HKCU\Control Panel\Desktop" /v TileWallpaper /t REG_SZ /d 0 /f && RUNDLL32.EXE user32.dll,UpdatePerUserSystemParameters 1, True
