@@ -9,16 +9,6 @@ if %errorLevel% NEQ 0 (
     exit /b
 )
 
-:: Check for Group Policy restrictions on wallpaper
-powershell.exe -NoProfile -Command ^
-"if ((Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\ActiveDesktop' -ErrorAction SilentlyContinue).Wallpaper) { Write-Host 'Group Policy enforced: Cannot change wallpaper.'; exit 1 }"
-
-if %errorlevel% NEQ 0 (
-    echo Group Policy is enforcing the wallpaper. Cannot change it.
-    pause
-    exit /b
-)
-
 :: Ask for image path
 set /p "imgPath=Enter the full path of the image to set as wallpaper: "
 
