@@ -1,38 +1,24 @@
 @echo off
-setlocal
+setlocal enabledelayedexpansion
 
-:: Define the path to the saved wallpaper file
-set "WallpaperFile=%APPDATA%\savedWallpaperPath.txt"
+:: Prompt for image path
+set /p "cursorPath=Enter the full path to the .cur or .ani cursor image: "
 
-:: Check if the wallpaper file exists
-if not exist "%WallpaperFile%" exit
+:: Save the path in AppData
+set "savePath=%APPDATA%\dametucositasave.txt"
+echo !cursorPath! > "!savePath!"
 
-:: Define path to startup folder
-set "StartupFolder=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
+:: Change the cursor by editing registry
+reg add "HKCU\Control Panel\Cursors" /v Arrow /t REG_SZ /d "!cursorPath!" /f
 
-:: Get full path to this batch script
-set "ScriptPath=%~f0"
+:: Apply changes
+RUNDLL32.EXE user32.dll,UpdatePerUserSystemParameters
 
-:: Define shortcut name
-set "ShortcutName=WallpaperLoop.lnk"
+:: Add to autorun (registry)
+set "scriptPath=%~f0"
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v Dametucosita /t REG_SZ /d "\"%scriptPath%\"" /f
 
-:: Check if the shortcut already exists
-if not exist "%StartupFolder%\%ShortcutName%" (
-    :: Create a shortcut in the startup folder using PowerShell
-    powershell -command ^
-    "$s=(New-Object -COM WScript.Shell).CreateShortcut('%StartupFolder%\%ShortcutName%');" ^
-    "$s.TargetPath='%ScriptPath%';" ^
-    "$s.Save()"
-)
+:: Minimize window (only hides future launches if converted to .vbs)
+:: This session ends, future sessions will run minimized via .vbs
 
-:: Start the background PowerShell process
-start "" powershell -windowstyle hidden -command ^
-"while ($true) { ^
-    $wallpaperPath = Get-Content -Path '%WallpaperFile%' -Raw; ^
-    Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name WallPaper -Value $wallpaperPath; ^
-    RUNDLL32.EXE USER32.DLL,UpdatePerUserSystemParameters ,1 ,True; ^
-    Start-Sleep -Seconds 1 ^
-}"
-
-:: Exit the batch script
 exit
